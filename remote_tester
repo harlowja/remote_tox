@@ -25,6 +25,11 @@ from plumbum import local
 from plumbum.path import utils
 
 DEF_VENV = 'py27'
+OK_HIDDEN = [
+    ".git", '.testr.conf',
+    '.gitreview', '.gitignore',
+    '.coveragerc', '.mailmap',
+]
 
 
 def read_write(read_from, write_where, chunk_size=128):
@@ -106,12 +111,27 @@ def runner(cmd, args):
     return p.returncode
 
 
+def is_hidden(path):
+    while path not in ["/", '']:
+        (parent_path, base) = os.path.split(path)
+        if base.startswith("."):
+            if base not in OK_HIDDEN:
+                return True
+        path = parent_path
+    return False
+
+
 def tar_up_dir(tarball, path, verbose=False):
+    path = os.path.abspath(path)
     if not os.path.isdir(path):
         raise ValueError("'%s' is not a directory" % path)
     for (dirpath, dirnames, filenames) in os.walk(path):
         for name in filenames:
-            filepath = os.path.join(dirpath, name)
+            filepath = os.path.abspath(os.path.join(dirpath, name))
+            if is_hidden(filepath):
+                if verbose:
+                    print("Skipping %s" % (filepath))
+                continue
             if not filepath.startswith(path):
                 # Do not allow outside directory includes...
                 raise IOError("Invalid path '%s' found" % (filepath))
