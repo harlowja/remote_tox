@@ -30,6 +30,10 @@ OK_HIDDEN = [
     '.gitreview', '.gitignore',
     '.coveragerc', '.mailmap',
 ]
+SKIP_EXTENSIONS = [
+    '.pyc',
+    '.pyo',
+]
 
 
 def read_write(read_from, write_where, chunk_size=128):
@@ -121,14 +125,26 @@ def is_hidden(path):
     return False
 
 
+def is_valid_extension(path):
+    base, ext = os.path.splitext(path)
+    if ext.lower() in SKIP_EXTENSIONS:
+        return True
+    return False
+
+
 def tar_up_dir(tarball, path, verbose=False):
     path = os.path.abspath(path)
     if not os.path.isdir(path):
         raise ValueError("'%s' is not a directory" % path)
+    path_filters = [is_hidden, is_valid_extension]
     for (dirpath, dirnames, filenames) in os.walk(path):
         for name in filenames:
             filepath = os.path.abspath(os.path.join(dirpath, name))
-            if is_hidden(filepath):
+            requested_skips = 0
+            for f in path_filters:
+                if f(filepath):
+                    requested_skips += 1
+            if requested_skips:
                 if verbose:
                     print("Skipping %s" % (filepath))
                 continue
