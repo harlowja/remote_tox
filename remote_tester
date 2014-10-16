@@ -19,6 +19,7 @@ from fcntl import (F_GETFL, F_SETFL, LOCK_EX, LOCK_NB, LOCK_UN)
 from os import O_NONBLOCK
 
 import six
+from six.moves import configparser
 
 import plumbum
 from plumbum import local
@@ -34,6 +35,38 @@ SKIP_EXTENSIONS = [
     '.pyc',
     '.pyo',
 ]
+CONF_FILE = os.path.expanduser("~/.remotes.ini")
+
+
+def read_hosts(args):
+    hosts = []
+    hosts.extend(args.hosts)
+    ini_hosts = read_option('hosts')
+    if ini_hosts:
+        for h in ini_hosts.strip().split(","):
+            hosts.append(h.strip())
+    dupless_hosts = []
+    for h in hosts:
+        h = h.strip()
+        if not h:
+            continue
+        h = h.lower()
+        if h in dupless_hosts:
+            continue
+        dupless_hosts.append(h)
+    return dupless_hosts
+
+
+def read_option(name, default=None):
+    if os.path.isfile(CONF_FILE):
+        cfg = configparser.RawConfigParser()
+        with open(CONF_FILE, 'rb') as fh:
+            cfg.readfp(fh, filename=CONF_FILE)
+            try:
+                return cfg.get('remote', name)
+            except (configparser.NoSectionError, configparser.NoOptionError):
+                pass
+    return default
 
 
 def read_write(read_from, write_where, chunk_size=128):
@@ -132,6 +165,16 @@ def is_valid_extension(path):
     return False
 
 
+def make_bool(text):
+    if isinstance(text, bool):
+        return text
+    if isinstance(text, int):
+        return bool(text)
+    if text.lower() in ('1', 'yes', 'true'):
+        return True
+    return False
+
+
 def tar_up_dir(tarball, path, verbose=False):
     path = os.path.abspath(path)
     if not os.path.isdir(path):
@@ -159,9 +202,11 @@ def tar_up_dir(tarball, path, verbose=False):
 
 def main():
     parser = argparse.ArgumentParser()
+    default_verbose = make_bool(read_option('verbose', default='no'))
     parser.add_argument("-v", "--verbose",
-                        help="increase output verbosity",
-                        action="store_true", default=False)
+                        help="increase output verbosity"
+                             " (default: %s)" % default_verbose,
+                        action="store_true", default=default_verbose)
     default_source_dir = os.getcwd()
     parser.add_argument("-d", "--directory",
                         help="test directory"
@@ -170,18 +215,20 @@ def main():
                         metavar="DIR")
     parser.add_argument("--host", help="remote test host",
                         action="append", metavar="HOST", dest='hosts',
-                        default=[], required=True)
-    default_user = getpass.getuser()
+                        default=[])
+    default_user = read_option('user', default=getpass.getuser())
     parser.add_argument("-u", "--user",
                         help="remote test"
                              " user (default: %s)" % default_user,
                         action="store", metavar="USER", default=default_user)
+    default_venv = read_option('venv', default=DEF_VENV)
     parser.add_argument("--venv",
                         help="remote test"
-                             " venv (default: %s)" % DEF_VENV,
+                             " venv (default: %s)" % default_venv,
                         action="store", metavar="VENV",
-                        default=DEF_VENV)
-    default_test_dir = os.path.expanduser("~/.testing")
+                        default=default_venv)
+    default_test_dir = read_option('test_path',
+                                   default=os.path.expanduser("~/.testing"))
     parser.add_argument("--path",
                         help="remote test"
                              " path (default: %s)" % default_test_dir,
@@ -191,11 +238,14 @@ def main():
     src_path = args.directory
     src = local.path(src_path)
     user = args.user
-    hosts = args.hosts
-    host = random.choice(hosts)
+    hosts = read_hosts(args)
+    if not hosts:
+        print("No remote hosts available. This will not end well.")
+        return 1
     if not os.path.exists(os.path.join(src_path, "tox.ini")):
         print("No tox.ini file available. This will not end well.")
         return 1
+    host = random.choice(hosts)
     lock_path = os.path.join(tempfile.gettempdir(),
                              "%s.remote_lock" % (src.basename))
     with lock_file(lock_path):
