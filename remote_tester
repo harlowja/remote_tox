@@ -8,6 +8,7 @@ import getpass
 import os
 import random
 import select
+import socket
 import sys
 import tarfile
 import tempfile
@@ -41,10 +42,12 @@ CONF_FILE = os.path.expanduser("~/.remotes.ini")
 def read_hosts(args):
     hosts = []
     hosts.extend(args.hosts)
-    ini_hosts = read_option('hosts')
-    if ini_hosts:
-        for h in ini_hosts.strip().split(","):
-            hosts.append(h.strip())
+    if not hosts:
+        for name in ['hosts_%s' % args.venv]:
+            ini_hosts = read_option(name)
+            if ini_hosts:
+                for h in ini_hosts.strip().split(","):
+                    hosts.append(h.strip())
     dupless_hosts = []
     for h in hosts:
         h = h.strip()
@@ -54,10 +57,16 @@ def read_hosts(args):
         if h in dupless_hosts:
             continue
         dupless_hosts.append(h)
-    return dupless_hosts
+    return validate_hosts(dupless_hosts)
 
 
-def read_option(name, default=None):
+def validate_hosts(hosts):
+    for host in hosts:
+        socket.gethostbyname(host)
+    return hosts
+
+
+def read_option(name, section='remote', default=None):
     if os.path.isfile(CONF_FILE):
         cfg = configparser.RawConfigParser()
         with open(CONF_FILE, 'rb') as fh:
